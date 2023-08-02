@@ -1,3 +1,9 @@
+"""
+Petitjean, F., Buntine, W., Webb, G. I., & Zaidi, N. (2018). Accurate parameter
+    estimation for Bayesian network classifiers using hierarchical Dirichlet
+    processes. Machine Learning, 107(8–10), 1303–1331.
+    https://doi.org/10.1007/s10994-018-5718-0
+"""
 import numpy as np
 import pybnc.utils as utils
 
@@ -111,7 +117,6 @@ class HDPTree:
         self.xc_card = xc.max() + 1  # if starting at zero
         self.root = HDPNode(self, None, self.xc_card)
 
-        # TODO this
         # Calculate MI(X_i; X_j | Y) from dataset for all attributes i != j
         mi_cond = {column_j:
                    utils.conditional_mutual_information(
@@ -133,6 +138,7 @@ class HDPTree:
         self.init_tree_with_dataset(self.X, xc)
 
     def print_tree(self, node=None, level=0):
+        """Prints nodes of tree recursively."""
         if node is None:
             node = self.root
             n = node.marginal_n
@@ -150,39 +156,35 @@ class HDPTree:
             self.print_tree(child, level+1)
 
     def get_nodes_at_depth(self, depth):
-        """
-
-        Returns all nodes at a given depth of the tree
-
-        """
+        """Returns all nodes at a given depth of the tree."""
         return self.root.get_nodes_at_depth(depth)
 
     def add_observation(self, x, xc):
         """
+        Assumes data is an integer from 0 to (nValues - 1) representing a
+        categorical value.
 
-        Creates the tree branches down to the leaves for which data exists
-        TODO if data doesn't exist?
-
-        data: Assumes first columns is the conditioned variable, and remaining
-            columns are the conditioning variables. Assumes data is in integer
-            format where each number represents a categorical value
-            from 0 to (nValues - 1).
-
+        x: value of conitioning variables
+        xc: value of conditioned variable
         """
         node = self.root
         for xi in x:
-            # node.n[xc] += 1
-            # node.marginal_n += 1
             node = node.children[xi]
 
         node.n[xc] += 1
         node.marginal_n += 1
 
-    # assumes X contains the conditioning variables,
-    #   and xc contains the conditioned variable
-    # X dataframe, xc series
-
     def init_tree_with_dataset(self, X, xc):
+        """
+        Creates the tree branches down to the leaves for which data exists
+        TODO if data doesn't exist?
+        Assumes data is an integer from 0 to (nValues - 1) representing a
+        categorical value.
+
+        X: A dataframe containing the conditioning variables
+        xc: A series containing values for the conditioned variables
+
+        """
         # create appropriate branches
         node = self.root
         for i, xi_name in enumerate(X.columns):
@@ -267,9 +269,6 @@ def estimate_prob_HDP(X, xc, target, n_iters, n_burn_in=None):
     if n_burn_in is None:
         n_burn_in = min(1000, int(n_iters/10))
 
-    # TODO sort X based on mutual information with xc conditioned on class
-    #    So need to specify which attribute is class
-
     tree = HDPTree(X, xc, target)
     init_parameters_recursively(tree.root)
 
@@ -330,7 +329,7 @@ def init_parameters_recursively(node):
 def sample_node(node, w, alpha):
     """
 
-    Algorithm 3
+    Algorithm 3: Sample psuedo-counts for node
 
     node: node of which we want to sample the parameters
     w: window for sampling
@@ -361,7 +360,7 @@ def sample_node(node, w, alpha):
             for t in range(min_tk, max_tk+1):
                 v[t] = change_tk_and_get_probability(node, k, t)
 
-            v = np.exp(utils.normalize_in_log_domain(v))
+            v = np.exp(utils.normalize_log_space(v))
 
             t = utils.multinomial(v)
             change_tk_and_get_probability(node, k, t)
@@ -389,10 +388,6 @@ def change_tk_and_get_probability(node, k, new_value):
         node.parent.n[k] = node.parent.n[k] + inc
         node.parent.marginal_n = node.parent.marginal_n + inc  # marginal
 
-    # s1 = stirling(node.parent.n[k], node.parent.t[k])
-    # s2 = stirling(node.n[k], node.t[k])
-    # rf = rising_factorial(node.parent.get_concentration(), node.parent.n[k])
-
     log_s1 = utils.log_stirling(node.parent.n[k], node.parent.t[k])
     log_s2 = utils.log_stirling(node.n[k], node.t[k])
     log_rf = utils.log_rising_factorial(
@@ -406,7 +401,7 @@ def change_tk_and_get_probability(node, k, new_value):
 def sample_concentration(alpha, nodes):
     """
 
-    Algorithm 5
+    Algorithm 5: Sampling of concentration parameters
 
     alpha: concentration to sample
     nodes: nodes sharing this concentration parameter (tying)

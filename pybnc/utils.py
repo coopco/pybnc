@@ -1,25 +1,19 @@
 import functools
 import scipy as sp
-from scipy.special import loggamma
+from scipy.special import loggamma, logsumexp
 
 import numpy as np
 
-"""
-
-X and Y must have same length
-
-"""
-
 
 def marginal_prob(X):
-    """
-    """
+    """Returns marginal probability distribution of X"""
     marginals = {x: len(X[X == x]) / len(X) for x in X.unique()}
     return marginals
 
 
 # TODO n-ary functions
 def joint_prob_2(X, Y):
+    """Returns joint probability distribution of X and Y"""
     joints = {(x, y): len(X[(X == x) & (Y == y)]) / len(X)
               for x in X.unique()
               for y in Y.unique()}
@@ -27,6 +21,7 @@ def joint_prob_2(X, Y):
 
 
 def joint_prob_3(X, Y, Z):
+    """Returns joint probability distribution of X, Y, and Z"""
     joints = {(x, y, z): len(X[(X == x) & (Y == y) & (Z == z)]) / len(X)
               for x in X.unique()
               for y in Y.unique()
@@ -35,6 +30,7 @@ def joint_prob_3(X, Y, Z):
 
 
 def joint_prob(*Xs):
+    """Returns joint probability distribution of arguments"""
     if len(Xs) == 2:
         return joint_prob_2(*Xs)
     elif len(Xs) == 3:
@@ -44,6 +40,7 @@ def joint_prob(*Xs):
 
 
 def mutual_information(X, Y):
+    """Computes MI(X, Y)"""
     marginal_Xs = marginal_prob(X)
     marginal_Ys = marginal_prob(Y)
     joint_XYs = joint_prob(X, Y)
@@ -57,6 +54,7 @@ def mutual_information(X, Y):
 
 
 def conditional_mutual_information(X, Y, Z):
+    """Computes MI(X, Y; Z)"""
     marginal_Zs = marginal_prob(Z)
     joint_XZs = joint_prob(X, Z)
     joint_YZs = joint_prob(Y, Z)
@@ -83,12 +81,14 @@ def digamma(z):
 
 
 @functools.lru_cache(maxsize=None)
+def rising_factorial(z, m):
+    """To compute (z+m)! / z!"""
+    return int(sp.special.poch(z, m))
+
+
+@functools.lru_cache(maxsize=None)
 def stirling(n, k):
-    """
-
-    Unsigned Sitrling numbers of the first kind
-
-    """
+    """Unsigned Sitrling numbers of the first kind."""
     if n == 0 and k == 0:
         return 1
     if n == 0 or k == 0:
@@ -98,14 +98,14 @@ def stirling(n, k):
     k = int(k)
     return (n-1)*stirling(n-1, k) + stirling(n-1, k-1)
 
-# TODO maximum recursion depth
-# Still probably overflows for large datasets
-#   Could maybe choose a base based on the size of the dataset
-#   Would have to implement own loggamma
-
 
 @functools.lru_cache(maxsize=None)
 def log_stirling(n, k):
+    """
+    Log of unsigned Sitrling numbers of the first kind.
+    TODO maximum recursion depth.
+    Still might overflow for large datasets.
+    """
     if n == k:
         return 0
     if n <= 1 or k == 0:
@@ -119,6 +119,12 @@ def log_stirling(n, k):
     return lns_prev + np.log1p(np.exp(temp))
 
 
+@functools.lru_cache(maxsize=None)
+def log_rising_factorial(m, n):
+    """Computes log of the rising factorial"""
+    return loggamma(m+n) - loggamma(m)
+
+
 def beta(a, b):
     return np.random.beta(a, b)
 
@@ -127,30 +133,5 @@ def multinomial(p, n=1):
     return np.argmax(np.random.multinomial(n, p))
 
 
-@functools.lru_cache(maxsize=None)
-def rising_factorial(z, m):
-    return int(sp.special.poch(z, m))
-
-
-@functools.lru_cache(maxsize=None)
-def log_rising_factorial(m, n):
-    return loggamma(m+n) - loggamma(m)
-
-
-def normalize_in_log_domain(logs):
-    return logs - sum_in_log_domain(logs)
-
-
-def sum_in_log_domain(logs):
-    max_idx = np.argmax(logs)
-    max_log = logs[max_idx]
-
-    # Calculate sum of exponent of differences
-    sum = 0
-    for i in range(len(logs)):
-        if i == max_idx:
-            sum += 1
-        else:
-            sum += np.exp(logs[i] - max_log)
-
-    return max_log + np.log(sum)
+def normalize_log_space(logs):
+    return logs - logsumexp(logs)
