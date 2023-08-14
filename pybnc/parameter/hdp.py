@@ -147,17 +147,21 @@ class HDPTree:
         """Prints nodes of tree recursively."""
         if node is None:
             node = self.root
-            n = node.marginal_n
-            t = node.marginal_t
+            n_marg = node.marginal_n
+            t_marg = node.marginal_t
+            n = node.n
+            t = node.t
             p = node.p_averaged
-            text = f"  n={n}, t={t}, p={p}"
+            text = f"  n*={n_marg}, n={n}, t*={t_marg}, t={t}, p={p}"
             print("  " * level + "|_" + text)
 
         for i, child in enumerate(node.children):
-            n = child.marginal_n
-            t = child.marginal_t
+            n_marg = child.marginal_n
+            t_marg = child.marginal_t
+            n = child.n
+            t = child.t
             p = child.p_averaged
-            text = f"{i}, n={n}, t={t}, p={p}"
+            text = f"{i}, n*={n_marg}, n={n}, t*={t_marg}, t={t}, p={p}"
             print("  " * (level+1) + "|_" + text)
             self.print_tree(child, level+1)
 
@@ -173,6 +177,7 @@ class HDPTree:
         x: value of conitioning variables
         xc: value of conditioned variable
         """
+        # TODO Assumes x is in x_sorted order (like in init_tree_with_dataset)
         node = self.root
         for xi in x:
             node = node.children[int(xi)]
@@ -316,7 +321,7 @@ def init_parameters_recursively(node):
             init_parameters_recursively(child)
             for k in range(node.xc_card):
                 node.n[k] = node.n[k] + child.t[k]
-                node.marginal_n = node.marginal_n + node.n[k]  # marginal
+                node.marginal_n = node.marginal_n + child.t[k]  # marginal
 
     if node.is_root():
         # forall k
