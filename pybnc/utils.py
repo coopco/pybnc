@@ -7,25 +7,25 @@ import numpy as np
 
 def marginal_prob(X):
     """Returns marginal probability distribution of X"""
-    marginals = {x: len(X[X == x]) / len(X) for x in X.unique()}
+    marginals = {x: len(X[X == x]) / len(X) for x in np.unique(X)}
     return marginals
 
 
 # TODO n-ary functions
-def joint_prob_2(X, Y):
+def joint_prob_2(X: np.array, Y: np.array):
     """Returns joint probability distribution of X and Y"""
     joints = {(x, y): len(X[(X == x) & (Y == y)]) / len(X)
-              for x in X.unique()
-              for y in Y.unique()}
+              for x in np.unique(X)
+              for y in np.unique(Y)}
     return joints
 
 
 def joint_prob_3(X, Y, Z):
     """Returns joint probability distribution of X, Y, and Z"""
     joints = {(x, y, z): len(X[(X == x) & (Y == y) & (Z == z)]) / len(X)
-              for x in X.unique()
-              for y in Y.unique()
-              for z in Z.unique()}
+              for x in np.unique(X)
+              for y in np.unique(Y)
+              for z in np.unique(Z)}
     return joints
 
 
@@ -47,8 +47,8 @@ def mutual_information(X, Y):
     mi = sum([joint_XYs[x, y] * np.log(
         joint_XYs[x, y] /
         (marginal_Xs[x]*marginal_Ys[y]))
-        for x in X.unique()
-        for y in Y.unique()
+        for x in np.unique(X)
+        for y in np.unique(Y)
         if joint_XYs[x, y] != 0])
     return mi
 
@@ -62,9 +62,9 @@ def conditional_mutual_information(X, Y, Z):
     mi = sum([joint_XYZs[x, y, z] * np.log(
         marginal_Zs[z]*joint_XYZs[x, y, z] /
         (joint_XZs[x, z]*joint_YZs[y, z]))
-        for x in X.unique()
-        for y in Y.unique()
-        for z in Z.unique()
+        for x in np.unique(X)
+        for y in np.unique(Y)
+        for z in np.unique(Z)
         if joint_XYZs[x, y, z] != 0])
 
     return mi

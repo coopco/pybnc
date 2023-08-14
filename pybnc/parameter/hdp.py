@@ -114,26 +114,32 @@ class HDPTree:
     """
 
     def __init__(self, X, xc, target):
-        self.xc_card = xc.max() + 1  # if starting at zero
+        # Assumes class values are integers
+        self.xc_card = int(xc.max()) + 1  # if starting at zero
         self.root = HDPNode(self, None, self.xc_card)
 
+        # TODO make sure column indexes don't get mixed up with full X dataset
+        #     e.g. sample requires x_sorted indexes
+
         # Calculate MI(X_i; X_j | Y) from dataset for all attributes i != j
-        mi_cond = {column_j:
+        mi_cond = {j:
                    utils.conditional_mutual_information(
-                       xc, X[column_j], target)
-                   for column_j in X.columns}
+                       xc, X[:, j], target)
+                   for j in range(X.shape[1])}
 
         # TODO test that mutual information calculations are actually correct
         # Sort attributes on MI(X_i; Y)
-        x_sorted = sorted(X.columns,
-                          key=lambda x: mi_cond[x]
-                          if x != target.name else np.inf,
-                          reverse=True)
-        self.X = X[x_sorted]
+        # TODO if parent is in X
+        self.x_sorted = sorted(range(X.shape[1]),
+                               key=lambda x: mi_cond[x],
+                               # if x != target.name else np.inf,
+                               reverse=True)
+        self.X = X[:, self.x_sorted]
+        print(self.x_sorted)
 
         # Depth tying
-        self.ctab = np.full(len(self.X.columns)+1, 2, dtype=float)
-        self.depth = len(self.X.columns)+1
+        self.ctab = np.full(self.X.shape[1]+1, 2, dtype=float)
+        self.depth = self.X.shape[1]+1
 
         self.init_tree_with_dataset(self.X, xc)
 
@@ -169,9 +175,9 @@ class HDPTree:
         """
         node = self.root
         for xi in x:
-            node = node.children[xi]
+            node = node.children[int(xi)]
 
-        node.n[xc] += 1
+        node.n[int(xc)] += 1
         node.marginal_n += 1
 
     def init_tree_with_dataset(self, X, xc):
@@ -187,13 +193,14 @@ class HDPTree:
         """
         # create appropriate branches
         node = self.root
-        for i, xi_name in enumerate(X.columns):
-            xi_card = X[xi_name].max()+1  # if starting at zero
+        for i, xi_name in enumerate(range(X.shape[1])):
+            # Assumes integers representing categorical values
+            xi_card = int(X[:, xi_name].max())+1  # if starting at zero
             for node in self.get_nodes_at_depth(i):
                 node.children = [HDPNode(self, node, self.xc_card)
                                  for _ in range(xi_card)]
 
-        for idx, row in X.iterrows():
+        for idx, row in enumerate(X):
             self.add_observation(row, xc[idx])
 
     def query(self, sample):
@@ -204,9 +211,10 @@ class HDPTree:
         sample: a datapoint (without the target variable)
 
         """
+        sample = sample[self.x_sorted]
         node = self.root
         for i in range(len(sample)):
-            node = node.children[sample[i]]
+            node = node.children[int(sample[i])]
 
         return node.p_averaged
 
@@ -272,7 +280,9 @@ def estimate_prob_HDP(X, xc, target, n_iters, n_burn_in=None):
     tree = HDPTree(X, xc, target)
     init_parameters_recursively(tree.root)
 
+    # Assign each node a tied concentration
     for depth in range(tree.depth):
+        # Per depth tying
         for node in tree.get_nodes_at_depth(depth):
             node.concentration_idx = depth
 

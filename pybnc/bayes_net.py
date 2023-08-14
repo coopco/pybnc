@@ -1,54 +1,140 @@
 # TODO change sample.py to inference.py?
 import typing
+import random
 
 import numpy as np
 import pandas as pd
 
-from .sample import BNSampling
 from .graph import BNGraph
+from .structure import kdb
 
 
-__all__ = ["BayesNet"]
+__all__ = ["BayesNetClassifier"]
 
 
-class BayesNet(BNGraph, BNSampling):
+class BayesNetClassifier(BNGraph):
     """
     Bayesian network.
     """
 
-    def __init__(self, *structure, prior_count: int = None, seed: int = None):
-        BNGraph.__init__(self, *structure)
-        BNSampling.__init__(self, seed)
+    def __init__(self, seed: int = None):
+        self.seed = seed
+        self._rng = random.Random(seed)
 
-    def prepare(self) -> "BayesNet":
-        # TODO does anything need to be done here?
-        pass
-
-    def partial_fit(self, X: pd.DataFrame, target=None):
+    def partial_fit(self, X: pd.DataFrame, Y: pd.Series):
         """Update the parameters of each conditional distribution."""
+        raise NotImplementedError
         # TODO incremental update
+
+    # TODO args for structure and parameter methods
+    # TODO np.ndarray
+    def fit(self,
+            X: pd.DataFrame,
+            Y: pd.Series,
+            structure="kdb",
+            parameter="hdp"):
+        """Find the values of each conditional distribution."""
+
+        # Compute mutual information between all varaibles (excluding target I think)
+        # Compute mutual information between all varaibles conditioned on target
+        # TODO need dataloader class
+
+        # Learn structure
+        if structure == "kdb":
+            edges = kdb(X, Y)
+        else:
+            raise NotImplementedError
+
+        BNGraph.__init__(self, *edges)
+
         for node in self.bn_nodes:
-            x_child = X[node.target]
-            x_parents = X[node.parents]
+            if "Y" == node.target:
+                x_child = Y
+            else:
+                x_child = X[:, node.target]
 
-            node.fit(x_child, x_parents, target, n_iters=100)
+            if "Y" in node.parents:
+                # Append Y to X[parents]
+                parents = [item for item in node.parents if item != "Y"]
+                x_parents = X[:, parents]
+                x_parents = np.hstack((x_parents, Y[:, np.newaxis]))
+            else:
+                x_parents = X[:, node.parents]
 
-        self.prepare()
+            node.fit(x_child, x_parents, Y, method=parameter, n_iters=100)
+
         return self
 
-    # TODO kind of weird passing target series when it is already apart of X
-    def fit(self, X: pd.DataFrame, target=None):
-        """Find the values of each conditional distribution."""
-        return self.partial_fit(X, target)
-
-    def _variable_elimination(self, *query, event):
+    def variable_elimination(self, X):
         """
         Variable elimination.
         """
         raise NotImplementedError
 
+    def predict(self, X):
+        return np.argmax(X, axis=1)
+
+    def predict_proba(self, X, method="exact"):
+        # Compute P(Y | X)
+        if method == "exact":
+            return self.variable_elimination(X)
+        else:
+            raise ValueError
+
+    def _forward_sample(self, init=None):
+        """
+        Perform forward sampling.
+
+        init:
+
+        """
+
+        init = init or {}
+
+        while True:
+
+            sample = {}
+            likelihood = 1.0
+
+            for idx, node in enumerate(self.nodes):
+                bn_node = None
+                for bn_node_i in self.bn_nodes:
+                    if bn_node_i.target == node:
+                        bn_node = bn_node_i
+
+                # Access P(node | parents(node))
+                # P = self.P[node]
+                # If node has a parent
+                if node in self.parents:
+                    # Doesn't throw error since nodes are in topological order
+                    condition = {
+                        idx: sample[parent]
+                        for idx, parent in enumerate(self.parents[node])}
+                else:
+                    condition = {}
+
+                # if node value fixed
+                if node in init:
+                    node_value = init[node]
+                    # TODO ensure condition nodes in correct order
+                    p = bn_node.query(condition)[node_value]
+                else:
+                    # TODO what if node is a root?
+                    # node_value = P.cpt.sample(rng=self._rng)
+                    node_value, p = bn_node.sample(condition)
+                    node_value = node_value[-1]
+
+                sample[node] = node_value
+                likelihood *= p
+
+            yield sample, likelihood
+
+    def sample(self, n=1, init={}):
+        pass
+
     # BELOW CODE from sorobn
     # Computes P(query | event)
+    # TODO how to write this without pandas column namees?
     def query(
         self,
         *query: typing.Tuple[str],
@@ -72,16 +158,16 @@ class BayesNet(BNGraph, BNSampling):
             answer = self._variable_elimination(*query, event=event)
 
         elif algorithm == "gibbs":
-            answer = self._gibbs_sampling(
+            answer = self.gibbs_sampling(
                 *query, event=event, n_iterations=n_iterations
             )
 
         elif algorithm == "likelihood":
-            answer = self._llh_weighting(
+            answer = self.llh_weighting(
                 *query, event=event, n_iterations=n_iterations)
 
         elif algorithm == "rejection":
-            answer = self._rejection_sampling(
+            answer = self.rejection_sampling(
                 *query, event=event, n_iterations=n_iterations
             )
 
@@ -100,51 +186,87 @@ class BayesNet(BNGraph, BNSampling):
         return answer.sort_index()
 
     # Computes P(event)
-    def predict_proba(self, X: typing.Union[dict, pd.DataFrame]):
-        """Return likelihood estimates.
 
-        The probabilities are obtained by first computing the full joint
-        distribution. Then, the likelihood of a sample is retrieved by
-        accessing the relevant row in the full joint distribution.
+    # BELOW CODE from sorobn
 
-        This method is a stepping stone for other functionalities, such as
-        computing the log-likelihood. The latter can in turn be used for
-        structure learning.
+    def sample(self, n=1, init: dict = None, method="forward"):
+        """Generate a new sample at random by using forward sampling.
 
         Parameters
         ----------
-        X
-            One or more samples.
+        n
+            Number of samples to produce. A DataFrame is returned if `n > 1`.
+            A dictionary is returned if not.
+        init
+            Allows forcing certain variables to take on given values.
+        method
+            The sampling method to use. Possible choices are: forward.
 
         """
 
-        # Convert dict to DataFrame
-        if isinstance(X, dict):
-            return self.predict_proba(pd.DataFrame([X])).iloc[0]
+        if method == "forward":
+            sampler = (sample for sample, _ in self._forward_sample(init))
 
-        fjd = self.full_joint_dist()
+        else:
+            raise ValueError("Unknown method, must be one of: forward")
 
-        # For partial events
-        if unobserved := set(fjd.index.names) - set(X.columns):
-            fjd = fjd.droplevel(list(unobserved))
-            fjd = fjd.groupby(fjd.index.names).sum()
+        if n > 1:
+            return pd.DataFrame(next(sampler) for _ in range(n)).sort_index(
+                axis="columns"
+            )
+        return next(sampler)
 
-        # For multiple events
-        if len(fjd.index.names) > 1:
-            return fjd[pd.MultiIndex.from_frame(X[fjd.index.names])]
+    def rejection_sampling(self, *query, event, n_iterations):
+        """Answer a query using rejection sampling."""
 
-        return fjd
+        # We don't know many samples we won't reject, therefore we cannot
+        # preallocate arrays
+        samples = {var: [] for var in query}
+        sampler = (sample for sample, _ in self._forward_sample())
 
-    def predict_log_proba(self, X: typing.Union[dict, pd.DataFrame]):
-        """Return log-likelihood estimates.
+        for _ in range(n_iterations):
+            sample = next(sampler)
 
-        Parameters
-        ----------
-        X
-            One or more samples.
+            # Reject if the sample is not consistent with the specified events
+            if any(sample[var] != val for var, val in event.items()):
+                continue
 
-        """
-        return np.log(self.predict_proba(X))
+            for var in query:
+                samples[var].append(sample[var])
+
+        # Aggregate and normalize the obtained samples
+        samples = pd.DataFrame(samples)
+        return samples.groupby(list(query)).size() / len(samples)
+
+    def importance_sampling(self, *query, event, n_iterations):
+        """Importance sampling."""
+
+        samples = {var: [None] * n_iterations for var in query}
+        likelihoods = [None] * n_iterations
+
+        sampler = self._forward_sample(init=event)
+
+        for i in range(n_iterations):
+
+            # Sample by using the events as fixed values
+            sample, likelihood = next(sampler)
+
+            # Compute the likelihood of this sample
+            for var in query:
+                samples[var][i] = sample[var]
+            likelihoods[i] = likelihood
+
+        # Now we aggregate the resulting samples according to their
+        # associated likelihoods
+        results = pd.DataFrame({"likelihood": likelihoods, **samples})
+        results = results.groupby(list(query))["likelihood"].mean()
+        results /= results.sum()
+
+        return results
+
+    def gibbs_sampling(self, *query, event, n_iterations):
+        """Gibbs sampling."""
+        pass
 
     def graphviz(self):
         """Export to Graphviz.
@@ -162,6 +284,3 @@ class BayesNet(BNGraph, BNSampling):
                 G.edge(str(node), str(child))
 
         return G
-
-    def _repr_svg_(self):
-        return self.graphviz()

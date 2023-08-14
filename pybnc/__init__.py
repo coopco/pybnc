@@ -1,9 +1,9 @@
-from .bayes_net import BayesNet
+from .bayes_net import BayesNetClassifier
 from . import parameter
 from . import structure
 
 __all__ = [
-    'BayesNet',
+    'BayesNetClassifier',
     'parameter',
     'structure'
 ]

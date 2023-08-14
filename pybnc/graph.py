@@ -1,6 +1,7 @@
 import collections
 import itertools
 import graphlib
+import numpy as np
 
 from .parameter.hdp import estimate_prob_HDP
 
@@ -10,7 +11,7 @@ class BNNode():
         self.target = target
         self.parents = parents
 
-    def fit(self, x_child, x_parents, target=None, method="hdp", **kwargs):
+    def fit(self, x_child: np.array, x_parents: np.ndarray, target=None, method="hdp", **kwargs):
         """
 
         Fit CPT to data
@@ -22,12 +23,11 @@ class BNNode():
         """
         # TODO error check that parents are correct
         if method == "hdp":
-            print(target, "sads")
             assert target is not None, "Target needs to be specified for HDPs"
             self.method = "hdp"
             self.hdp = estimate_prob_HDP(x_parents, x_child, target, **kwargs)
 
-    def query(self, sample):
+    def query(self, sample: np.array):
         """
 
         Get the probability estimated by the HDP process
@@ -51,6 +51,7 @@ class BNGraph():
                 return obj
             return [obj]
 
+        # BELOW CODE FROM sorobn
         # The structure is made up of nodes (scalars) and edges (tuples)
         edges = (e for e in structure if isinstance(e, tuple))
         nodes = set(e for e in structure if not isinstance(e, tuple))
@@ -67,7 +68,8 @@ class BNGraph():
                 self.children[parent].add(child)
 
         # collections.defaultdict(set) -> dict(list)
-        self.parents = {node: sorted(parents)
+        print(self.parents)
+        self.parents = {node: sorted(parents, key=lambda i: ord(str(i)))
                         for node, parents in self.parents.items()}
         self.children = {
             node: sorted(children) for node, children in self.children.items()
@@ -77,7 +79,7 @@ class BNGraph():
         # are sorted in lexicographic order.
         ts = graphlib.TopologicalSorter()
         all_nodes = {*self.parents.keys(), *self.children.keys(), *nodes}
-        for node in sorted(all_nodes):
+        for node in sorted(all_nodes, key=lambda i: ord(str(i))):
             ts.add(node, *self.parents.get(node, []))
         self.nodes = list(ts.static_order())
 
@@ -92,7 +94,6 @@ class BNGraph():
             return set(parents) | parent_ancestors
         return set()
 
-    @property
     def roots(self):
         """Return the network's roots.
 
@@ -101,7 +102,6 @@ class BNGraph():
         """
         return [node for node in self.nodes if node not in self.parents]
 
-    @property
     def leaves(self):
         """Return the network's leaves.
 
@@ -110,7 +110,6 @@ class BNGraph():
         """
         return [node for node in self.nodes if node not in self.children]
 
-    @property
     def is_tree(self):
         """Indicate whether or not the network is a tree.
 
