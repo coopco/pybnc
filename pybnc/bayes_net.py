@@ -3,7 +3,6 @@ import typing
 import random
 
 import numpy as np
-import pandas as pd
 
 from .graph import BNGraph
 from .structure import kdb
@@ -21,7 +20,7 @@ class BayesNetClassifier(BNGraph):
         self.seed = seed
         self._rng = random.Random(seed)
 
-    def partial_fit(self, X: pd.DataFrame, Y: pd.Series):
+    def partial_fit(self, X: np.ndarray, Y: np.ndarray):
         """Update the parameters of each conditional distribution."""
         raise NotImplementedError
         # TODO incremental update
@@ -29,15 +28,17 @@ class BayesNetClassifier(BNGraph):
     # TODO args for structure and parameter methods
     # TODO np.ndarray
     def fit(self,
-            X: pd.DataFrame,
-            Y: pd.Series,
+            X: np.ndarray,
+            Y: np.ndarray,
             structure="kdb",
-            parameter="hdp"):
+            parameter="hdp",
+            **kwargs):
         """Find the values of each conditional distribution."""
 
         # Compute mutual information between all varaibles (excluding target I think)
         # Compute mutual information between all varaibles conditioned on target
         # TODO need dataloader class
+        self.target_cardinality = len(np.unique(Y))
 
         # Learn structure
         if structure == "kdb":
@@ -61,7 +62,8 @@ class BayesNetClassifier(BNGraph):
             else:
                 x_parents = X[:, node.parents]
 
-            node.fit(x_child, x_parents, Y, method=parameter, n_iters=100)
+            # TODO n_iters arg
+            node.fit(x_child, x_parents, Y, method=parameter, **kwargs)
 
         return self
 
@@ -71,13 +73,44 @@ class BayesNetClassifier(BNGraph):
         """
         raise NotImplementedError
 
+    def rejection_sampling(self, event, n_iterations):
+        """Answer a query using rejection sampling."""
+        sampler = self._forward_sample()
+        # TODO preallocate array size
+        # samples = {var: [] for var in query}
+        counts = np.zeros(self.target_cardinality)
+
+        for _ in range(n_iterations):
+            sample, _ = next(sampler)
+
+            # Reject if sample is not consistent with event
+            # TODO ugly
+            reject = False
+            for i, value in enumerate(event):
+                if sample[i] != value:
+                    reject = True
+
+            if reject:
+                continue
+
+            # Accept sample
+            counts[sample['Y']] += 1
+            # for var in query:
+            #     samples[var].append(sample[var])
+
+        num_samples = sum(counts)
+        return counts / sum(counts) if num_samples > 0 else counts
+
     def predict(self, X):
         return np.argmax(X, axis=1)
 
-    def predict_proba(self, X, method="exact"):
+    def predict_proba(self, X, method="exact", n_iterations=100):
+        # TODO vectorize
         # Compute P(Y | X)
         if method == "exact":
             return self.variable_elimination(X)
+        elif method == "rejection":
+            return self.rejection_sampling(X, n_iterations)
         else:
             raise ValueError
 
@@ -89,22 +122,23 @@ class BayesNetClassifier(BNGraph):
 
         """
 
+        if init is not None:
+            raise NotImplementedError
+
         init = init or {}
-
+        # TODO advantages/disadvantages of generator
         while True:
-
             sample = {}
             likelihood = 1.0
 
-            for idx, node in enumerate(self.nodes):
+            for _, node in enumerate(self.nodes):
+                # TODO ugly
                 bn_node = None
                 for bn_node_i in self.bn_nodes:
                     if bn_node_i.target == node:
                         bn_node = bn_node_i
 
                 # Access P(node | parents(node))
-                # P = self.P[node]
-                # If node has a parent
                 if node in self.parents:
                     # Doesn't throw error since nodes are in topological order
                     condition = {
@@ -113,16 +147,8 @@ class BayesNetClassifier(BNGraph):
                 else:
                     condition = {}
 
-                # if node value fixed
-                if node in init:
-                    node_value = init[node]
-                    # TODO ensure condition nodes in correct order
-                    p = bn_node.query(condition)[node_value]
-                else:
-                    # TODO what if node is a root?
-                    # node_value = P.cpt.sample(rng=self._rng)
-                    node_value, p = bn_node.sample(condition)
-                    node_value = node_value[-1]
+                node_value, p = bn_node.sample(condition=condition)
+                node_value = node_value[-1]
 
                 sample[node] = node_value
                 likelihood *= p
@@ -134,14 +160,13 @@ class BayesNetClassifier(BNGraph):
 
     # BELOW CODE from sorobn
     # Computes P(query | event)
-    # TODO how to write this without pandas column namees?
     def query(
         self,
         *query: typing.Tuple[str],
         event: dict,
         algorithm="exact",
         n_iterations=100,
-    ) -> pd.Series:
+    ) -> np.ndarray:
         """
         Computes P(query | event)
         """
@@ -188,55 +213,6 @@ class BayesNetClassifier(BNGraph):
     # Computes P(event)
 
     # BELOW CODE from sorobn
-
-    def sample(self, n=1, init: dict = None, method="forward"):
-        """Generate a new sample at random by using forward sampling.
-
-        Parameters
-        ----------
-        n
-            Number of samples to produce. A DataFrame is returned if `n > 1`.
-            A dictionary is returned if not.
-        init
-            Allows forcing certain variables to take on given values.
-        method
-            The sampling method to use. Possible choices are: forward.
-
-        """
-
-        if method == "forward":
-            sampler = (sample for sample, _ in self._forward_sample(init))
-
-        else:
-            raise ValueError("Unknown method, must be one of: forward")
-
-        if n > 1:
-            return pd.DataFrame(next(sampler) for _ in range(n)).sort_index(
-                axis="columns"
-            )
-        return next(sampler)
-
-    def rejection_sampling(self, *query, event, n_iterations):
-        """Answer a query using rejection sampling."""
-
-        # We don't know many samples we won't reject, therefore we cannot
-        # preallocate arrays
-        samples = {var: [] for var in query}
-        sampler = (sample for sample, _ in self._forward_sample())
-
-        for _ in range(n_iterations):
-            sample = next(sampler)
-
-            # Reject if the sample is not consistent with the specified events
-            if any(sample[var] != val for var, val in event.items()):
-                continue
-
-            for var in query:
-                samples[var].append(sample[var])
-
-        # Aggregate and normalize the obtained samples
-        samples = pd.DataFrame(samples)
-        return samples.groupby(list(query)).size() / len(samples)
 
     def importance_sampling(self, *query, event, n_iterations):
         """Importance sampling."""

@@ -4,6 +4,8 @@ import graphlib
 import numpy as np
 
 from .parameter.hdp import estimate_prob_HDP
+from .parameter.mle import ML_estimate
+from .parameter.m_estimate import M_estimate
 
 
 class BNNode():
@@ -25,7 +27,14 @@ class BNNode():
         if method == "hdp":
             assert target is not None, "Target needs to be specified for HDPs"
             self.method = "hdp"
-            self.hdp = estimate_prob_HDP(x_parents, x_child, target, **kwargs)
+            self.distribution = estimate_prob_HDP(
+                x_parents, x_child, target, **kwargs)
+        elif method == "m_estimate":
+            self.method = "m_estimate"
+            self.distribution = M_estimate(x_parents, x_child, **kwargs)
+        elif method == "mle":
+            self.method = "mle"
+            self.distribution = M_estimate(x_parents, x_child, m=0, **kwargs)
 
     def query(self, sample: np.array):
         """
@@ -35,12 +44,10 @@ class BNNode():
         sample: a datapoint (without the target variable)
 
         """
-        if self.method == "hdp":
-            return self.hdp.query(sample)
+        return self.distribution.query(sample)
 
-    def sample(self, n=1):
-        if self.method == "hdp":
-            return self.hdp.sample(n)
+    def sample(self, condition={}, n=1):
+        return self.distribution.sample(condition=condition, n=1)
 
 
 # BELOW code from sorobn
@@ -68,7 +75,6 @@ class BNGraph():
                 self.children[parent].add(child)
 
         # collections.defaultdict(set) -> dict(list)
-        print(self.parents)
         self.parents = {node: sorted(parents, key=lambda i: ord(str(i)))
                         for node, parents in self.parents.items()}
         self.children = {

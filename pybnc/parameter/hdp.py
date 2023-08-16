@@ -135,7 +135,6 @@ class HDPTree:
                                # if x != target.name else np.inf,
                                reverse=True)
         self.X = X[:, self.x_sorted]
-        print(self.x_sorted)
 
         # Depth tying
         self.ctab = np.full(self.X.shape[1]+1, 2, dtype=float)
@@ -143,25 +142,32 @@ class HDPTree:
 
         self.init_tree_with_dataset(self.X, xc)
 
+    def __str__(self):
+        # TODO get print_tree to return string, not print
+        self.print_tree()
+        return ""
+
     def print_tree(self, node=None, level=0):
         """Prints nodes of tree recursively."""
         if node is None:
             node = self.root
             n_marg = node.marginal_n
             t_marg = node.marginal_t
-            n = node.n
-            t = node.t
             p = node.p_averaged
-            text = f"  n*={n_marg}, n={n}, t*={t_marg}, t={t}, p={p}"
+            text = f"  n*={n_marg}, t*={t_marg}, p={p}"
+            # n = node.n
+            # t = node.t
+            # text = f"  n*={n_marg}, n={n}, t*={t_marg}, t={t}, p={p}"
             print("  " * level + "|_" + text)
 
         for i, child in enumerate(node.children):
             n_marg = child.marginal_n
             t_marg = child.marginal_t
-            n = child.n
-            t = child.t
             p = child.p_averaged
-            text = f"{i}, n*={n_marg}, n={n}, t*={t_marg}, t={t}, p={p}"
+            text = f"{i}, n*={n_marg}, t*={t_marg}, p={p}"
+            # n = child.n
+            # t = child.t
+            # text = f"{i}, n*={n_marg}, n={n}, t*={t_marg}, t={t}, p={p}"
             print("  " * (level+1) + "|_" + text)
             self.print_tree(child, level+1)
 
@@ -233,6 +239,7 @@ class HDPTree:
         """
         # TODO shouldnt be multiplying p down tree?
         # TODO error check that tree has been fitted
+        # TODO p should be taking condition as fixed
         fixed_parents = condition.keys()
         p = 1.0
         depth = 0
@@ -269,7 +276,7 @@ def record_probability_recursively(root):
     root.record_probability_recursively()
 
 
-def estimate_prob_HDP(X, xc, target, n_iters, n_burn_in=None):
+def estimate_prob_HDP(X, xc, target, n_iters=500, n_burn_in=None):
     """
 
     Algorithm 1
@@ -322,6 +329,8 @@ def init_parameters_recursively(node):
             for k in range(node.xc_card):
                 node.n[k] = node.n[k] + child.t[k]
                 node.marginal_n = node.marginal_n + child.t[k]  # marginal
+                # Below using algorithm in paper
+                # node.marginal_n = node.marginal_n + node.n[k]  # marginal
 
     if node.is_root():
         # forall k

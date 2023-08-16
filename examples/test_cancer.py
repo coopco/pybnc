@@ -5,7 +5,9 @@ from sklearn.model_selection import train_test_split
 np.random.seed(123)
 
 data = np.genfromtxt("examples/cancer.csv", delimiter=",", skip_header=True)
-train, test = train_test_split(data)
+# train, test = train_test_split(data)
+train = data
+test = data
 
 target = 0
 train_X = np.delete(train, target, axis=1)
